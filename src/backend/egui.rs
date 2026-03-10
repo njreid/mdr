@@ -117,6 +117,9 @@ struct MdrApp {
 
 impl eframe::App for MdrApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Ensure text in labels is selectable and copyable (Cmd+C / Ctrl+C)
+        ctx.style_mut(|s| s.interaction.selectable_labels = true);
+
         // Check for file changes
         if self.watcher_rx.try_recv().is_ok() {
             while self.watcher_rx.try_recv().is_ok() {}

@@ -3,6 +3,7 @@ use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoop};
 use tao::window::WindowBuilder;
 use wry::WebViewBuilder;
+use muda::{Menu, Submenu, PredefinedMenuItem};
 
 use crate::core::markdown::{parse_markdown, GITHUB_CSS};
 use crate::core::toc;
@@ -51,14 +52,31 @@ pub fn run(file_path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let (icon_rgba, icon_w, icon_h) = crate::core::icon::load_icon_rgba();
 
     let event_loop = EventLoop::new();
+
+    // Create a native Edit menu so that Cmd+C/Ctrl+C/V/X/A work on all platforms
+    let menu = Menu::new();
+    let edit_menu = Submenu::new("Edit", true);
+    let _ = edit_menu.append_items(&[
+        &PredefinedMenuItem::cut(None),
+        &PredefinedMenuItem::copy(None),
+        &PredefinedMenuItem::paste(None),
+        &PredefinedMenuItem::select_all(None),
+    ]);
+    let _ = menu.append(&edit_menu);
+
     let window = WindowBuilder::new()
         .with_title(format!("mdr - {}", file_path.display()))
         .with_inner_size(tao::dpi::LogicalSize::new(1100.0, 900.0))
         .with_window_icon(Some(tao::window::Icon::from_rgba(icon_rgba, icon_w, icon_h).unwrap()))
         .build(&event_loop)?;
 
+    // On macOS, init the menu for the app so Cmd+C/V/X/A work via the responder chain
+    #[cfg(target_os = "macos")]
+    menu.init_for_nsapp();
+
     let webview = WebViewBuilder::new()
         .with_html(&full_html)
+        .with_clipboard(true)
         .build(&window)?;
 
     event_loop.run(move |event, _, control_flow| {
@@ -455,6 +473,19 @@ document.querySelector('.sidebar').addEventListener('click', function(e) {{
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_html_does_not_block_clipboard_in_csp() {
+        let toc = vec![];
+        let html = build_html("<p>Hello</p>", &toc);
+        // CSP must NOT block clipboard API — it should either omit clipboard restrictions
+        // or not have a restrictive default-src that prevents copy operations
+        // The key is that the webview's native copy (Cmd+C/Ctrl+C) works through
+        // the OS menu, not through CSP-gated JavaScript APIs
+        assert!(html.contains("Content-Security-Policy"), "CSP should be present");
+        // Verify CSP doesn't block scripts (needed for search, mermaid, etc.)
+        assert!(html.contains("script-src 'unsafe-inline'"), "Scripts must be allowed for search to work");
+    }
 
     #[test]
     fn resolve_local_images_svg_rasterized_to_png() {

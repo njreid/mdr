@@ -14,7 +14,7 @@ keywords = ["markdown", "viewer", "mermaid", "tui", "webview"]
 [features]
 default = ["egui-backend", "webview-backend", "tui-backend"]
 egui-backend = ["dep:eframe", "dep:egui_commonmark", "dep:resvg", "dep:usvg", "dep:tiny-skia"]
-webview-backend = ["dep:wry", "dep:tao", "dep:resvg", "dep:usvg", "dep:tiny-skia"]
+webview-backend = ["dep:wry", "dep:tao", "dep:muda", "dep:resvg", "dep:usvg", "dep:tiny-skia"]
 tui-backend = ["dep:ratatui", "dep:crossterm", "dep:ratatui-image", "dep:ureq", "dep:resvg", "dep:usvg", "dep:tiny-skia", "image/jpeg", "image/gif", "image/webp"]
 
 [dependencies]
@@ -38,6 +38,7 @@ tiny-skia = { version = "0.11", optional = true }
 # webview backend
 wry = { version = "0.54", optional = true }
 tao = { version = "0.34", optional = true }
+muda = { version = "0.15", optional = true }
 
 # tui backend
 ratatui = { version = "0.29", optional = true }
