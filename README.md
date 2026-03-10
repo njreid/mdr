@@ -60,8 +60,10 @@ brew install CleverCloud/misc/mdr
 ### Snap (Linux)
 
 ```bash
-sudo snap install mdr-markdown-renderer
+sudo snap install --edge mdr-markdown-renderer
 ```
+
+> **Note**: The snap command is `mdr-markdown-renderer`, not `mdr`. You can create an alias: `sudo snap alias mdr-markdown-renderer mdr`
 
 ### Scoop (Windows)
 
