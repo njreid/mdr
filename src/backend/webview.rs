@@ -556,6 +556,76 @@ mod tests {
         assert!(html.contains("script-src 'unsafe-inline'"), "Scripts must be allowed for search to work");
     }
 
+    // --- highlight.js / KDL highlighting tests ---
+
+    #[test]
+    fn highlight_js_injected_when_code_blocks_present() {
+        let toc = vec![];
+        let body = r#"<pre><code class="language-rust">fn main() {}</code></pre>"#;
+        let html = build_html(body, &toc);
+        assert!(html.contains("hljs.highlightAll()"), "hljs.highlightAll() must be present when code blocks exist");
+        assert!(html.contains("hljsDefineKdl"), "KDL language definition must be injected");
+        assert!(html.contains("hljs.registerLanguage('kdl'"), "KDL must be registered with highlight.js");
+    }
+
+    #[test]
+    fn highlight_js_not_injected_for_prose_only() {
+        let toc = vec![];
+        let html = build_html("<p>No code here</p>", &toc);
+        assert!(!html.contains("hljs.highlightAll()"), "hljs should not be injected for prose-only content");
+        assert!(!html.contains("hljsDefineKdl"), "KDL grammar should not be injected for prose-only content");
+    }
+
+    #[test]
+    fn kdl_grammar_registers_correct_language_name() {
+        // The grammar file must declare hljsDefineKdl and reference 'kdl' as the language name
+        assert!(HIGHLIGHT_KDL.contains("hljsDefineKdl"), "Grammar must export hljsDefineKdl function");
+        assert!(HIGHLIGHT_KDL.contains("name: 'KDL'"), "Grammar must declare name: 'KDL'");
+        assert!(HIGHLIGHT_KDL.contains("aliases: ['kdl']"), "Grammar must include 'kdl' alias");
+    }
+
+    #[test]
+    fn kdl_grammar_covers_key_token_types() {
+        // Verify the grammar handles all major KDL v2 token types
+        assert!(HIGHLIGHT_KDL.contains("title.function"), "Node names need title.function scope");
+        assert!(HIGHLIGHT_KDL.contains("'attr'"), "Property keys need attr scope");
+        assert!(HIGHLIGHT_KDL.contains("'string'"), "Strings need string scope");
+        assert!(HIGHLIGHT_KDL.contains("'number'"), "Numbers need number scope");
+        assert!(HIGHLIGHT_KDL.contains("'literal'"), "Keyword literals need literal scope");
+        assert!(HIGHLIGHT_KDL.contains("'type'"), "Type annotations need type scope");
+        assert!(HIGHLIGHT_KDL.contains("'comment'"), "Comments need comment scope");
+    }
+
+    #[test]
+    fn kdl_grammar_handles_all_literals() {
+        // #true #false #null #inf #-inf #nan must all be covered
+        assert!(HIGHLIGHT_KDL.contains("#(?:true|false|null|nan|-inf|inf)") ||
+                (HIGHLIGHT_KDL.contains("true") && HIGHLIGHT_KDL.contains("false") &&
+                 HIGHLIGHT_KDL.contains("null") && HIGHLIGHT_KDL.contains("inf")),
+            "Grammar must cover all KDL v2 keyword literals");
+    }
+
+    #[test]
+    fn kdl_grammar_handles_raw_strings() {
+        // Raw strings #"..."# syntax must be present
+        assert!(HIGHLIGHT_KDL.contains("#+\""), "Grammar must handle raw string start #\"");
+        assert!(HIGHLIGHT_KDL.contains("\"#+"), "Grammar must handle raw string end \"#");
+    }
+
+    #[test]
+    fn kdl_grammar_handles_slashdash() {
+        assert!(HIGHLIGHT_KDL.contains("/-"), "Grammar must handle slashdash comments");
+    }
+
+    #[test]
+    fn highlight_css_includes_both_themes() {
+        assert!(HIGHLIGHT_CSS.contains("prefers-color-scheme:light"), "Must include light theme");
+        assert!(HIGHLIGHT_CSS.contains("prefers-color-scheme:dark"), "Must include dark theme");
+        // Both themes must define .hljs background
+        assert!(HIGHLIGHT_CSS.contains("#fff"), "Light theme must set white background");
+        assert!(HIGHLIGHT_CSS.contains("#0d1117"), "Dark theme must set dark background");
+    }
+
     #[test]
     fn resolve_local_images_svg_rasterized_to_png() {
         let dir = std::env::temp_dir().join("mdr_test_webview_svg_raster");
