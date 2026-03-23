@@ -265,6 +265,9 @@ const MERMAID_JS: &str = include_str!("../../assets/mermaid.min.js");
 /// Highlight.js embedded at compile time — only injected when code blocks are present.
 const HIGHLIGHT_JS: &str = include_str!("../../assets/highlight.min.js");
 
+/// KDL language definition for highlight.js — registered as 'kdl'.
+const HIGHLIGHT_KDL: &str = include_str!("../../assets/kdl.highlight.js");
+
 /// GitHub light/dark syntax highlight themes combined with prefers-color-scheme media queries.
 const HIGHLIGHT_CSS: &str = concat!(
     "pre code.hljs{display:block;overflow-x:auto;padding:1em}code.hljs{padding:3px 5px}",
@@ -301,6 +304,18 @@ const HIGHLIGHT_CSS: &str = concat!(
     ".hljs-strong{color:#c9d1d9;font-weight:700}",
     ".hljs-addition{color:#aff5b4;background-color:#033a16}",
     ".hljs-deletion{color:#ffdcd7;background-color:#67060c}",
+    "}",
+    // KDL-specific overrides (higher specificity via .language-kdl, no !important needed)
+    // Node names: bold red
+    ".language-kdl .hljs-title,.language-kdl .function_{color:#cc0000;font-weight:bold}",
+    // Property keys: purple italic (distinct from values)
+    ".language-kdl .hljs-attr{color:#6f42c1;font-style:italic}",
+    // Attribute values: light blue
+    ".language-kdl .hljs-string,.language-kdl .hljs-number,.language-kdl .hljs-literal{color:#0969da}",
+    "@media (prefers-color-scheme:dark){",
+    ".language-kdl .hljs-title,.language-kdl .function_{color:#f87171}",
+    ".language-kdl .hljs-attr{color:#d2a8ff;font-style:italic}",
+    ".language-kdl .hljs-string,.language-kdl .hljs-number,.language-kdl .hljs-literal{color:#79c0ff}",
     "}"
 );
 
@@ -382,8 +397,10 @@ fn build_html(body: &str, toc_entries: &[toc::TocEntry]) -> String {
     // Only include highlight.js when there are fenced code blocks to highlight
     let highlight_script = if body.contains("<pre><code") {
         format!(
-            r#"<style>{}</style><script>{}</script><script>hljs.highlightAll();</script>"#,
-            HIGHLIGHT_CSS, HIGHLIGHT_JS
+            r#"<style>{css}</style><script>{js}</script><script>{kdl}hljs.registerLanguage('kdl',hljsDefineKdl);hljs.highlightAll();</script>"#,
+            css = HIGHLIGHT_CSS,
+            js = HIGHLIGHT_JS,
+            kdl = HIGHLIGHT_KDL,
         )
     } else {
         String::new()
@@ -636,6 +653,90 @@ mod tests {
         assert!(html.contains("Content-Security-Policy"), "CSP should be present");
         // Verify CSP doesn't block scripts (needed for search, mermaid, etc.)
         assert!(html.contains("script-src 'unsafe-inline'"), "Scripts must be allowed for search to work");
+    }
+
+    // --- highlight.js / KDL highlighting tests ---
+
+    #[test]
+    fn highlight_js_injected_when_code_blocks_present() {
+        let toc = vec![];
+        let body = r#"<pre><code class="language-rust">fn main() {}</code></pre>"#;
+        let html = build_html(body, &toc);
+        assert!(html.contains("hljs.highlightAll()"), "hljs.highlightAll() must be present when code blocks exist");
+        assert!(html.contains("hljsDefineKdl"), "KDL language definition must be injected");
+        assert!(html.contains("hljs.registerLanguage('kdl'"), "KDL must be registered with highlight.js");
+    }
+
+    #[test]
+    fn highlight_js_not_injected_for_prose_only() {
+        let toc = vec![];
+        let html = build_html("<p>No code here</p>", &toc);
+        assert!(!html.contains("hljs.highlightAll()"), "hljs should not be injected for prose-only content");
+        assert!(!html.contains("hljsDefineKdl"), "KDL grammar should not be injected for prose-only content");
+    }
+
+    #[test]
+    fn kdl_grammar_registers_correct_language_name() {
+        // The grammar file must declare hljsDefineKdl and reference 'kdl' as the language name
+        assert!(HIGHLIGHT_KDL.contains("hljsDefineKdl"), "Grammar must export hljsDefineKdl function");
+        assert!(HIGHLIGHT_KDL.contains("name: 'KDL'"), "Grammar must declare name: 'KDL'");
+        assert!(HIGHLIGHT_KDL.contains("aliases: ['kdl']"), "Grammar must include 'kdl' alias");
+    }
+
+    #[test]
+    fn kdl_grammar_covers_key_token_types() {
+        // Verify the grammar handles all major KDL v2 token types
+        assert!(HIGHLIGHT_KDL.contains("title.function"), "Node names need title.function scope");
+        assert!(HIGHLIGHT_KDL.contains("'attr'"), "Property keys need attr scope");
+        assert!(HIGHLIGHT_KDL.contains("'string'"), "Strings need string scope");
+        assert!(HIGHLIGHT_KDL.contains("'number'"), "Numbers need number scope");
+        assert!(HIGHLIGHT_KDL.contains("'literal'"), "Keyword literals need literal scope");
+        assert!(HIGHLIGHT_KDL.contains("'type'"), "Type annotations need type scope");
+        assert!(HIGHLIGHT_KDL.contains("'comment'"), "Comments need comment scope");
+    }
+
+    #[test]
+    fn kdl_grammar_handles_all_literals() {
+        // #true #false #null #inf #-inf #nan must all be covered
+        assert!(HIGHLIGHT_KDL.contains("#(?:true|false|null|nan|-inf|inf)") ||
+                (HIGHLIGHT_KDL.contains("true") && HIGHLIGHT_KDL.contains("false") &&
+                 HIGHLIGHT_KDL.contains("null") && HIGHLIGHT_KDL.contains("inf")),
+            "Grammar must cover all KDL v2 keyword literals");
+    }
+
+    #[test]
+    fn kdl_grammar_handles_raw_strings() {
+        // Raw strings #"..."# syntax must be present
+        assert!(HIGHLIGHT_KDL.contains("#+\""), "Grammar must handle raw string start #\"");
+        assert!(HIGHLIGHT_KDL.contains("\"#+"), "Grammar must handle raw string end \"#");
+    }
+
+    #[test]
+    fn kdl_grammar_handles_slashdash() {
+        assert!(HIGHLIGHT_KDL.contains("/-"), "Grammar must handle slashdash comments");
+    }
+
+    #[test]
+    fn highlight_css_includes_both_themes() {
+        assert!(HIGHLIGHT_CSS.contains("prefers-color-scheme:light"), "Must include light theme");
+        assert!(HIGHLIGHT_CSS.contains("prefers-color-scheme:dark"), "Must include dark theme");
+        // Both themes must define .hljs background
+        assert!(HIGHLIGHT_CSS.contains("#fff"), "Light theme must set white background");
+        assert!(HIGHLIGHT_CSS.contains("#0d1117"), "Dark theme must set dark background");
+    }
+
+    #[test]
+    fn highlight_css_includes_kdl_overrides() {
+        // Node names: bold red
+        assert!(HIGHLIGHT_CSS.contains(".language-kdl .hljs-title"), "KDL node name override must be present");
+        assert!(HIGHLIGHT_CSS.contains("font-weight:bold"), "KDL node names must be bold");
+        // Property keys: italic
+        assert!(HIGHLIGHT_CSS.contains(".language-kdl .hljs-attr"), "KDL property key override must be present");
+        assert!(HIGHLIGHT_CSS.contains("font-style:italic"), "KDL property keys must be italic");
+        // Attribute values: light blue
+        assert!(HIGHLIGHT_CSS.contains(".language-kdl .hljs-string"), "KDL value override must be present");
+        // Dark mode overrides present
+        assert!(HIGHLIGHT_CSS.contains(".language-kdl .hljs-title,.language-kdl .function_"), "Dark mode KDL node name override must be present");
     }
 
     #[test]
