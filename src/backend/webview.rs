@@ -263,6 +263,9 @@ const MERMAID_JS: &str = include_str!("../../assets/mermaid.min.js");
 /// Highlight.js embedded at compile time — only injected when code blocks are present.
 const HIGHLIGHT_JS: &str = include_str!("../../assets/highlight.min.js");
 
+/// KDL language definition for highlight.js — registered as 'kdl'.
+const HIGHLIGHT_KDL: &str = include_str!("../../assets/kdl.highlight.js");
+
 /// GitHub light/dark syntax highlight themes combined with prefers-color-scheme media queries.
 const HIGHLIGHT_CSS: &str = concat!(
     "pre code.hljs{display:block;overflow-x:auto;padding:1em}code.hljs{padding:3px 5px}",
@@ -380,8 +383,10 @@ fn build_html(body: &str, toc_entries: &[toc::TocEntry]) -> String {
     // Only include highlight.js when there are fenced code blocks to highlight
     let highlight_script = if body.contains("<pre><code") {
         format!(
-            r#"<style>{}</style><script>{}</script><script>hljs.highlightAll();</script>"#,
-            HIGHLIGHT_CSS, HIGHLIGHT_JS
+            r#"<style>{css}</style><script>{js}</script><script>{kdl}hljs.registerLanguage('kdl',hljsDefineKdl);hljs.highlightAll();</script>"#,
+            css = HIGHLIGHT_CSS,
+            js = HIGHLIGHT_JS,
+            kdl = HIGHLIGHT_KDL,
         )
     } else {
         String::new()
