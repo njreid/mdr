@@ -302,6 +302,18 @@ const HIGHLIGHT_CSS: &str = concat!(
     ".hljs-strong{color:#c9d1d9;font-weight:700}",
     ".hljs-addition{color:#aff5b4;background-color:#033a16}",
     ".hljs-deletion{color:#ffdcd7;background-color:#67060c}",
+    "}",
+    // KDL-specific overrides (higher specificity via .language-kdl, no !important needed)
+    // Node names: bold red
+    ".language-kdl .hljs-title,.language-kdl .function_{color:#cc0000;font-weight:bold}",
+    // Property keys: purple italic (distinct from values)
+    ".language-kdl .hljs-attr{color:#6f42c1;font-style:italic}",
+    // Attribute values: light blue
+    ".language-kdl .hljs-string,.language-kdl .hljs-number,.language-kdl .hljs-literal{color:#0969da}",
+    "@media (prefers-color-scheme:dark){",
+    ".language-kdl .hljs-title,.language-kdl .function_{color:#f87171}",
+    ".language-kdl .hljs-attr{color:#d2a8ff;font-style:italic}",
+    ".language-kdl .hljs-string,.language-kdl .hljs-number,.language-kdl .hljs-literal{color:#79c0ff}",
     "}"
 );
 
@@ -624,6 +636,20 @@ mod tests {
         // Both themes must define .hljs background
         assert!(HIGHLIGHT_CSS.contains("#fff"), "Light theme must set white background");
         assert!(HIGHLIGHT_CSS.contains("#0d1117"), "Dark theme must set dark background");
+    }
+
+    #[test]
+    fn highlight_css_includes_kdl_overrides() {
+        // Node names: bold red
+        assert!(HIGHLIGHT_CSS.contains(".language-kdl .hljs-title"), "KDL node name override must be present");
+        assert!(HIGHLIGHT_CSS.contains("font-weight:bold"), "KDL node names must be bold");
+        // Property keys: italic
+        assert!(HIGHLIGHT_CSS.contains(".language-kdl .hljs-attr"), "KDL property key override must be present");
+        assert!(HIGHLIGHT_CSS.contains("font-style:italic"), "KDL property keys must be italic");
+        // Attribute values: light blue
+        assert!(HIGHLIGHT_CSS.contains(".language-kdl .hljs-string"), "KDL value override must be present");
+        // Dark mode overrides present
+        assert!(HIGHLIGHT_CSS.contains(".language-kdl .hljs-title,.language-kdl .function_"), "Dark mode KDL node name override must be present");
     }
 
     #[test]
