@@ -105,7 +105,7 @@ pub fn run(file_path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
                 let body_json = serde_json::to_string(&new_html).unwrap_or_default();
                 let toc_json = serde_json::to_string(&toc_html).unwrap_or_default();
                 let js = format!(
-                    "document.querySelector('.content').innerHTML = {}; document.querySelector('.sidebar ul').innerHTML = {};",
+                    "document.querySelector('.content').innerHTML = {}; document.querySelector('.sidebar ul').innerHTML = {}; if (window.hljs) hljs.highlightAll();",
                     body_json, toc_json
                 );
                 let _ = webview.evaluate_script(&js);
@@ -260,6 +260,48 @@ fn build_toc_html(entries: &[toc::TocEntry]) -> String {
 /// Mermaid.js embedded at compile time — only injected when the Rust renderer fails.
 const MERMAID_JS: &str = include_str!("../../assets/mermaid.min.js");
 
+/// Highlight.js embedded at compile time — only injected when code blocks are present.
+const HIGHLIGHT_JS: &str = include_str!("../../assets/highlight.min.js");
+
+/// GitHub light/dark syntax highlight themes combined with prefers-color-scheme media queries.
+const HIGHLIGHT_CSS: &str = concat!(
+    "pre code.hljs{display:block;overflow-x:auto;padding:1em}code.hljs{padding:3px 5px}",
+    "@media (prefers-color-scheme:light){",
+    ".hljs{color:#24292e;background:#fff}",
+    ".hljs-doctag,.hljs-keyword,.hljs-meta .hljs-keyword,.hljs-template-tag,.hljs-template-variable,.hljs-type,.hljs-variable.language_{color:#d73a49}",
+    ".hljs-title,.hljs-title.class_,.hljs-title.class_.inherited__,.hljs-title.function_{color:#6f42c1}",
+    ".hljs-attr,.hljs-attribute,.hljs-literal,.hljs-meta,.hljs-number,.hljs-operator,.hljs-selector-attr,.hljs-selector-class,.hljs-selector-id,.hljs-variable{color:#005cc5}",
+    ".hljs-meta .hljs-string,.hljs-regexp,.hljs-string{color:#032f62}",
+    ".hljs-built_in,.hljs-symbol{color:#e36209}",
+    ".hljs-code,.hljs-comment,.hljs-formula{color:#6a737d}",
+    ".hljs-name,.hljs-quote,.hljs-selector-pseudo,.hljs-selector-tag{color:#22863a}",
+    ".hljs-subst{color:#24292e}",
+    ".hljs-section{color:#005cc5;font-weight:700}",
+    ".hljs-bullet{color:#735c0f}",
+    ".hljs-emphasis{color:#24292e;font-style:italic}",
+    ".hljs-strong{color:#24292e;font-weight:700}",
+    ".hljs-addition{color:#22863a;background-color:#f0fff4}",
+    ".hljs-deletion{color:#b31d28;background-color:#ffeef0}",
+    "}",
+    "@media (prefers-color-scheme:dark){",
+    ".hljs{color:#c9d1d9;background:#0d1117}",
+    ".hljs-doctag,.hljs-keyword,.hljs-meta .hljs-keyword,.hljs-template-tag,.hljs-template-variable,.hljs-type,.hljs-variable.language_{color:#ff7b72}",
+    ".hljs-title,.hljs-title.class_,.hljs-title.class_.inherited__,.hljs-title.function_{color:#d2a8ff}",
+    ".hljs-attr,.hljs-attribute,.hljs-literal,.hljs-meta,.hljs-number,.hljs-operator,.hljs-selector-attr,.hljs-selector-class,.hljs-selector-id,.hljs-variable{color:#79c0ff}",
+    ".hljs-meta .hljs-string,.hljs-regexp,.hljs-string{color:#a5d6ff}",
+    ".hljs-built_in,.hljs-symbol{color:#ffa657}",
+    ".hljs-code,.hljs-comment,.hljs-formula{color:#8b949e}",
+    ".hljs-name,.hljs-quote,.hljs-selector-pseudo,.hljs-selector-tag{color:#7ee787}",
+    ".hljs-subst{color:#c9d1d9}",
+    ".hljs-section{color:#1f6feb;font-weight:700}",
+    ".hljs-bullet{color:#f2cc60}",
+    ".hljs-emphasis{color:#c9d1d9;font-style:italic}",
+    ".hljs-strong{color:#c9d1d9;font-weight:700}",
+    ".hljs-addition{color:#aff5b4;background-color:#033a16}",
+    ".hljs-deletion{color:#ffdcd7;background-color:#67060c}",
+    "}"
+);
+
 /// Rasterize an SVG file to PNG and return as a base64 data URI.
 /// This is safer than inlining SVG because SVG can contain scripts, links, and styles
 /// that would execute in the page context and cause unwanted navigation/requests.
@@ -331,6 +373,15 @@ fn build_html(body: &str, toc_entries: &[toc::TocEntry]) -> String {
             r#"<script>{}</script>
 <script>mermaid.initialize({{ startOnLoad: true, theme: (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'default' }});</script>"#,
             MERMAID_JS
+        )
+    } else {
+        String::new()
+    };
+    // Only include highlight.js when there are fenced code blocks to highlight
+    let highlight_script = if body.contains("<pre><code") {
+        format!(
+            r#"<style>{}</style><script>{}</script><script>hljs.highlightAll();</script>"#,
+            HIGHLIGHT_CSS, HIGHLIGHT_JS
         )
     } else {
         String::new()
@@ -471,12 +522,14 @@ document.querySelector('.sidebar').addEventListener('click', function(e) {{
     }});
 }})();
 </script>
+{highlight_script}
 {mermaid_script}
 </body>
 </html>"#,
         css = GITHUB_CSS,
         toc = toc_html,
         body = body,
+        highlight_script = highlight_script,
         mermaid_script = mermaid_script
     )
 }
