@@ -107,7 +107,7 @@ pub fn run(file_path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
                 let body_json = serde_json::to_string(&new_html).unwrap_or_default();
                 let toc_json = serde_json::to_string(&toc_html).unwrap_or_default();
                 let js = format!(
-                    "document.querySelector('.content').innerHTML = {}; document.querySelector('.sidebar ul').innerHTML = {}; if (window.hljs) hljs.highlightAll();",
+                    "document.querySelector('.content').innerHTML = {}; document.querySelector('.sidebar ul').innerHTML = {}; if (window.hljs) hljs.highlightAll(); if (window.mdrRenderMermaid) window.mdrRenderMermaid();",
                     body_json, toc_json
                 );
                 let _ = webview.evaluate_script(&js);
@@ -388,7 +388,36 @@ fn build_html(body: &str, toc_entries: &[toc::TocEntry]) -> String {
     let mermaid_script = if body.contains(r#"class="mermaid""#) {
         format!(
             r#"<script>{}</script>
-<script>mermaid.initialize({{ startOnLoad: true, theme: (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'default' }});</script>"#,
+<script>
+(function() {{
+    var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    mermaid.initialize({{ startOnLoad: false, theme: dark ? 'dark' : 'default' }});
+    window.mdrRenderMermaid = function renderAll() {{
+        document.querySelectorAll('pre.mermaid').forEach(function(el, idx) {{
+            var source = el.textContent;
+            var id = 'mermaid-svg-' + idx + '-' + Math.random().toString(36).slice(2);
+            mermaid.render(id, source).then(function(result) {{
+                var div = document.createElement('div');
+                div.className = 'mermaid-diagram';
+                div.innerHTML = result.svg;
+                el.parentNode.replaceChild(div, el);
+            }}).catch(function(err) {{
+                var msg = (err && (err.message || err.str || String(err))) || 'Unknown render error';
+                var esc = msg.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                var div = document.createElement('div');
+                div.className = 'mermaid-error';
+                div.innerHTML = '<strong>&#9671; Mermaid error</strong><pre style="white-space:pre-wrap;margin:8px 0 0 0;font-size:12px">' + esc + '</pre>';
+                el.parentNode.replaceChild(div, el);
+            }});
+        }});
+    }}
+    if (document.readyState === 'loading') {{
+        document.addEventListener('DOMContentLoaded', window.mdrRenderMermaid);
+    }} else {{
+        window.mdrRenderMermaid();
+    }}
+}})();
+</script>"#,
             MERMAID_JS
         )
     } else {
@@ -436,6 +465,7 @@ fn build_html(body: &str, toc_entries: &[toc::TocEntry]) -> String {
 #expand-content svg {{ width: 95vw; height: 95vh; }}
 .expandable img, .expandable svg {{ cursor: zoom-in; }}
 .content svg {{ width: 100% !important; height: auto !important; display: block; }}
+.content {{ margin-bottom: 5rem; }}
 </style>
 </head>
 <body>
@@ -445,6 +475,7 @@ fn build_html(body: &str, toc_entries: &[toc::TocEntry]) -> String {
 </nav>
 <div class="content">
 {body}
+<p></p>
 </div>
 <script>
 document.querySelector('.sidebar').addEventListener('click', function(e) {{

@@ -6,6 +6,50 @@ use std::sync::mpsc::Receiver;
 use crate::core::mermaid::preprocess_mermaid_for_egui;
 use crate::core::toc::{self, TocEntry};
 
+/// Read the body font size (in points) from KDE's kdeglobals config.
+/// The `font=` value under `[General]` is a comma-separated Qt font descriptor;
+/// the second field is the point size (e.g. "Noto Sans,11,-1,5,400,...").
+fn read_kde_font_size() -> Option<f32> {
+    let home = std::env::var("HOME").ok()?;
+    let path = std::path::PathBuf::from(home).join(".config/kdeglobals");
+    let content = std::fs::read_to_string(path).ok()?;
+    let mut in_general = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed == "[General]" { in_general = true; continue; }
+        if trimmed.starts_with('[') { in_general = false; }
+        if in_general && trimmed.starts_with("font=") {
+            // "Family,size,-1,5,weight,italic,..."
+            let parts: Vec<&str> = trimmed["font=".len()..].split(',').collect();
+            if parts.len() >= 2 {
+                return parts[1].parse::<f32>().ok().filter(|&s| s > 0.0);
+            }
+        }
+    }
+    None
+}
+
+/// Apply KDE body font size to all egui text styles.
+/// `pt` is in points; egui sizes are logical pixels at 96 DPI baseline.
+fn configure_fonts(ctx: &egui::Context, pt: f32) {
+    let px = pt * (96.0 / 72.0); // pt → logical px
+    ctx.style_mut(|style| {
+        use egui::{FontId, TextStyle};
+        // Heading is used by egui_commonmark as the H1 size; H2/H3 are interpolated
+        // between Heading and Body, so a larger ratio gives more visual hierarchy.
+        style.text_styles = [
+            (TextStyle::Small,    FontId::proportional(px * 0.8)),
+            (TextStyle::Body,     FontId::proportional(px)),
+            (TextStyle::Button,   FontId::proportional(px)),
+            (TextStyle::Heading,  FontId::proportional(px * 2.0)),
+            (TextStyle::Monospace, FontId::monospace(px)),
+        ]
+        .into();
+        // Slightly more breathing room between paragraphs (default y is 3.0)
+        style.spacing.item_spacing.y = 5.0;
+    });
+}
+
 pub fn run(file_path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let canonical_file = std::fs::canonicalize(&file_path)
         .unwrap_or_else(|_| {
@@ -59,6 +103,7 @@ pub fn run(file_path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
                 search_query: String::new(),
                 search_section_matches: Vec::new(),
                 current_match: 0,
+                fonts_configured: false,
             }))
         }),
     )
@@ -113,10 +158,17 @@ struct MdrApp {
     search_query: String,
     search_section_matches: Vec<usize>,
     current_match: usize,
+    fonts_configured: bool,
 }
 
 impl eframe::App for MdrApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Apply font configuration on first frame (must be done here, not in creation callback)
+        if !self.fonts_configured {
+            configure_fonts(ctx, read_kde_font_size().unwrap_or(13.0));
+            self.fonts_configured = true;
+        }
+
         // Ensure text in labels is selectable and copyable (Cmd+C / Ctrl+C)
         ctx.style_mut(|s| s.interaction.selectable_labels = true);
 

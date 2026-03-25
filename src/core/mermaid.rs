@@ -3,18 +3,35 @@ use regex::Regex;
 /// Preprocess mermaid source to fix known incompatibilities with mermaid-rs-renderer.
 /// This increases the success rate of the native Rust renderer across all backends.
 fn preprocess_mermaid_source(source: &str) -> String {
+    use std::sync::OnceLock;
+    // Matches: subgraph "Some Label"  (no explicit id — renderer requires one)
+    static QUOTED_SUBGRAPH_RE: OnceLock<Regex> = OnceLock::new();
+    let re = QUOTED_SUBGRAPH_RE.get_or_init(|| {
+        Regex::new(r#"^(\s*)subgraph\s+"([^"]*)"(\s*)$"#).unwrap()
+    });
+
     let mut result = String::with_capacity(source.len());
+    let mut sg_counter = 0u32;
     for line in source.lines() {
-        let processed = line
-            // Replace HTML line breaks in node labels with spaces
-            .replace("<br/>", " ")
-            .replace("<br>", " ")
-            .replace("<br />", " ")
-            // Replace bidirectional arrows (not supported) with unidirectional
-            .replace("<-->", "---")
-            .replace("x--x", "---")
-            .replace("o--o", "---");
-        result.push_str(&processed);
+        // Fix quoted-only subgraph labels: subgraph "Foo" → subgraph _sg0["Foo"]
+        let line = if let Some(caps) = re.captures(line) {
+            let indent = &caps[1];
+            let label = &caps[2];
+            let id = format!("_sg{}", sg_counter);
+            sg_counter += 1;
+            format!(r#"{}subgraph {}["{}"]"#, indent, id, label)
+        } else {
+            line
+                // Replace HTML line breaks in node labels with spaces
+                .replace("<br/>", " ")
+                .replace("<br>", " ")
+                .replace("<br />", " ")
+                // Replace bidirectional arrows (not supported) with unidirectional
+                .replace("<-->", "---")
+                .replace("x--x", "---")
+                .replace("o--o", "---")
+        };
+        result.push_str(&line);
         result.push('\n');
     }
     result
@@ -40,7 +57,7 @@ pub fn render_mermaid_to_svg(source: &str) -> Result<String, String> {
     let source = source.to_string();
     match std::panic::catch_unwind(|| mermaid_rs_renderer::render(&source)) {
         Ok(Ok(svg)) => Ok(svg),
-        Ok(Err(e)) => Err(format!("{}", e)),
+        Ok(Err(e)) => Err(format!("{:#}", e)),
         Err(_) => Err("mermaid renderer panicked (unsupported diagram syntax)".to_string()),
     }
 }
@@ -96,11 +113,25 @@ pub fn process_mermaid_blocks(html: &str) -> String {
         let source = html_decode(&caps[1]);
         match render_mermaid_to_svg(&source) {
             Ok(svg) => format!(r#"<div class="mermaid-diagram">{}</div>"#, svg),
-            Err(_) => format!(
+            Err(e) => format!(
                 r#"<pre class="mermaid">{}</pre>"#,
-                html_encode(&source)
+                html_encode(&format!("{}\n\n{}", e, source))
             ),
         }
+    })
+    .to_string()
+}
+
+/// Pass mermaid code blocks through as `<pre class="mermaid">` elements for mermaid.js.
+/// Used by the webview backend, which delegates all rendering to the bundled mermaid.js
+/// rather than the native Rust renderer.
+pub fn passthrough_mermaid_blocks(html: &str) -> String {
+    use std::sync::OnceLock;
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(r#"<pre><code class="language-mermaid">([\s\S]*?)</code></pre>"#).unwrap());
+    re.replace_all(html, |caps: &regex::Captures| {
+        let source = html_decode(&caps[1]);
+        format!(r#"<pre class="mermaid">{}</pre>"#, source)
     })
     .to_string()
 }
@@ -120,7 +151,15 @@ pub fn preprocess_mermaid_for_egui(markdown: &str) -> String {
                 Ok(b64) => format!("![mermaid diagram](data:image/png;base64,{})", b64),
                 Err(_) => format!("> **◇ Mermaid Diagram** *(SVG to PNG conversion failed)*\n\n```\n{}```", source),
             },
-            Err(_) => format!("> **◇ Mermaid Diagram** *(unsupported by native renderer)*\n\n```\n{}```", source),
+            Err(e) => {
+                let numbered = source
+                    .lines()
+                    .enumerate()
+                    .map(|(i, l)| format!("{:>3} | {}", i + 1, l))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("> **◇ Mermaid** *({})*\n\n```\n{}\n```", e, numbered)
+            }
         }
     })
     .to_string()

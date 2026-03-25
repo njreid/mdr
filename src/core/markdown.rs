@@ -1,5 +1,5 @@
 use comrak::{markdown_to_html, Options};
-use crate::core::mermaid::process_mermaid_blocks;
+use crate::core::mermaid::passthrough_mermaid_blocks;
 
 /// Convert markdown content to HTML with all GFM extensions enabled.
 /// Processes mermaid code blocks into inline SVG diagrams.
@@ -15,7 +15,7 @@ pub fn parse_markdown(content: &str) -> String {
 
     let html = markdown_to_html(content, &options);
     let html = add_heading_ids(&html);
-    process_mermaid_blocks(&html)
+    passthrough_mermaid_blocks(&html)
 }
 
 /// Add id attributes to heading tags for anchor navigation.
@@ -150,11 +150,10 @@ mod tests {
         // A mermaid code block should be processed (either rendered or show error)
         let md = "```mermaid\ngraph LR\n  A-->B\n```";
         let result = parse_markdown(md);
-        // The mermaid block should not remain as a raw code block with language-mermaid class
-        // It should either be a rendered SVG diagram or a mermaid-error div
+        // The mermaid block should be passed through as a mermaid.js element
         assert!(
-            result.contains("mermaid-diagram") || result.contains("mermaid-error") || result.contains("mermaid-fallback"),
-            "Mermaid block should be processed, got: {}",
+            result.contains(r#"class="mermaid""#),
+            "Mermaid block should be a mermaid.js passthrough element, got: {}",
             result
         );
     }
